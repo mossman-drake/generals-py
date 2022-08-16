@@ -25,7 +25,6 @@ CROWN = '👑'
 TENT = '⛺'
 HUT = '🛖'
 
-['\033[95m','\033[94m','\033[96m','\033[92m','\033[93m','\033[91m']
 class bcolors:
     HEADER = '\033[95m'
     OKBLUE = '\033[94m'
@@ -308,29 +307,12 @@ def handle_game_update(data, _):
     # terrain[0] is the top-left corner of the map.
     terrain = map[size + 2: size + 2 + size]
 
-    # print(terrain)
-    # print_as_grid(terrain, width=map_width)
-
     if not capital_distances:
         capital_distances = calculate_distances(generals[playerIndex])
-        # print('Capital distances:')
-        # print_as_grid(capital_distances, width=map_width, tile_aliases={**DEFAULT_GRID_ALIASES, 0:'*'})
-        # path = chart_path(0, generals[playerIndex])
-        # print(path)
-        # path_grid = terrain[:]
-        # last_tile = path[0]
-        # for tile in path[1:]:
-        #     directions = {'→': right, '←': left, '↑': up, '↓': down}
-        #     correct_direction = [symbol for symbol, translation in  directions.items() if translation(last_tile) == tile][0]
-        #     path_grid[last_tile] = correct_direction
-        #     last_tile = tile
-        # print_as_grid(path_grid, width=map_width, colored_tiles={key:bcolors.OKGREEN for key in path}, column_seperator='')
-        # print('path printed')
-
 
     if turn >= movement_finished_turn:
         unowned_territory_distances = [-5 if terrain[i] == playerIndex else tile for i, tile in enumerate(capital_distances)]
-        print("unowned_territory_distances:")
+        # print("unowned_territory_distances:")
         # print_as_grid(unowned_territory_distances, width=map_width, tile_aliases={**DEFAULT_GRID_ALIASES, -5:'*'})
         furthest_unexplored_loc = unowned_territory_distances.index(max(unowned_territory_distances))
         army_sizes = [army if terrain[i] == playerIndex else 0 for i, army in enumerate(armies)]
