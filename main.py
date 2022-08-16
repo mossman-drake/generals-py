@@ -75,7 +75,6 @@ FORCE_START_INTERVAL_MS = 5000
 force_start_interval = None
 map_width = None
 map_height = None
-last_path_turn = 0
 capital_distances = None
 traversal_paths = None
 movement_finished_turn = 24
@@ -94,6 +93,7 @@ def handle_set_username_error(error_message):
         print('Username successfully set!')
 
 def on_connect():
+    global game_started
     print('Connected to server.')
     if 'username' in user_config and 'has_username_been_set' not in user_config:
         # Set the username for the bot.
@@ -104,6 +104,7 @@ def on_connect():
     # Custom games are a great way to test your bot while you develop it because you can play against your bot!
     socket.emit('join_private', custom_game_id, user_config['user_id'])
     socket.emit('set_force_start', custom_game_id, True)
+    game_started = False
     
     print('Joined custom game at http://bot.generals.io/games/' + quote(custom_game_id))
 
@@ -160,9 +161,11 @@ def patch(old, diff):
     return out
 
 def handle_game_start(data, _):
-    global playerIndex, game_started
+    global playerIndex, game_started, movement_finished_turn, capital_distances
     # Get ready to start playing the game.
     game_started = True
+    capital_distances = None
+    movement_finished_turn = 24
     playerIndex = data['playerIndex']
     # clearInterval(force_start_interval);
     replay_url = 'http://bot.generals.io/replays/' + quote(data['replay_id'])
@@ -250,7 +253,7 @@ def traverse(start, end):
             socket.emit('attack', path[i], path[i+1])
         return path
     else:
-        print(f'traversal failed. terrain[start] = {terrain[start]} != {playerIndex}')
+        print(f'traversal failed. terrain[{start}] = {terrain[start]} != {playerIndex}')
         print_as_grid(terrain, width=map_width)
 
 def print_path(path, grid=None):
@@ -324,15 +327,13 @@ def handle_game_update(data, _):
 def handle_win(_, __='unspecified'):
     print('I won!')
     socket.emit('leave_game')
-    print(locals())
-    sys.exit(0)
+    on_connect()
     
 
 def handle_loss(_, __='unspecified'):
     print('I lose.')
-    print(locals())
     socket.emit('leave_game')
-    sys.exit(0)
+    on_connect()
 
 socket.on('connect', on_connect)
 # socket.on('reconnect', on_reconnect)
