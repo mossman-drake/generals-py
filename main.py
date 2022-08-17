@@ -1,5 +1,4 @@
 import json
-import math
 import sys
 import random
 from wcwidth import wcswidth
@@ -40,9 +39,6 @@ SERVER_URL = 'https://bot.generals.io'
 REPLAY_URL_TEMPLATE = 'http://bot.generals.io/replays/%s'
 socket = SocketIO(SERVER_URL, Namespace=BaseNamespace) # What does Namespace do?
 
-
-
-
 custom_game_id = None
 user_config =  None
 if len(sys.argv) > 1:
@@ -70,19 +66,21 @@ if user_config == None:
     print('Joining as Anonymous.')
     user_config = {'user_id': random.choices(ascii_letters, k=16)}
 
-game_started = False
-FORCE_START_INTERVAL_MS = 5000
-force_start_interval = None
+connected_to_server = False
+game_state = 'disconnected'  # 'disconnected' | 'connected' | 'lobby' | 'running'
 map_width = None
 map_height = None
 capital_distances = None
 traversal_paths = None
 movement_finished_turn = 24
 turn = 0
+processing_update = False
 
 
 def handle_disconnect():
+    global game_state
     print('Disconnected from server.')
+    game_state = 'disconnected'
     sys.exit(0)
 
 def handle_set_username_error(error_message):
@@ -92,33 +90,38 @@ def handle_set_username_error(error_message):
     else:
         print('Username successfully set!')
 
-def on_connect():
-    global game_started
-    print('Connected to server.')
+def set_username_if_necessary():
     if 'username' in user_config and 'has_username_been_set' not in user_config:
         # Set the username for the bot.
         # This should only ever be done once. See the API reference for more details.
         socket.emit('set_username', user_config['user_id'], user_config['username'])
 
-    # Join a custom game and force start immediately.
-    # Custom games are a great way to test your bot while you develop it because you can play against your bot!
-    socket.emit('join_private', custom_game_id, user_config['user_id'])
-    socket.emit('set_force_start', custom_game_id, True)
-    game_started = False
-    
-    print('Joined custom game at http://bot.generals.io/games/' + quote(custom_game_id))
+def join_lobby():
+    global game_state
+    game_state = 'lobby'
+    if custom_game_id == '1v1':
+        # Join the 1v1 queue.
+        socket.emit('join_1v1', user_config['user_id'])
+        print('Joined 1v1 queue')
+    elif custom_game_id == 'ffa':
+        # Join the FFA queue.
+        socket.emit('play', user_config['user_id'])
+        print('Joined ffa queue')
+    else:
+        # Join a custom game and force start immediately.
+        # Custom games are a great way to test your bot while you develop it because you can play against your bot!
+        socket.emit('join_private', custom_game_id, user_config['user_id'])
+        # socket.emit('set_force_start', custom_game_id, True)
+        print('Joined custom game at http://bot.generals.io/games/' + quote(custom_game_id))
 
-    # When you're ready, you can have your bot join other game modes.
-    # Here are some examples of how you'd do that:
-
-    # Join the 1v1 queue.
-    # socket.emit('join_1v1', user_config['user_id']);
-
-    # Join the FFA queue.
-    # socket.emit('play', useuser_config['user_id']r_id);
 
     # Join a 2v2 team.
     # socket.emit('join_team', 'team_name', user_config['user_id']);
+
+def handle_connect():
+    global game_state
+    print('Connected to server.')
+    game_state = 'connected'
 
 
 # Terrain Constants.
@@ -161,9 +164,9 @@ def patch(old, diff):
     return out
 
 def handle_game_start(data, _):
-    global playerIndex, game_started, movement_finished_turn, capital_distances
+    global playerIndex, game_state, movement_finished_turn, capital_distances
     # Get ready to start playing the game.
-    game_started = True
+    game_state = 'running'
     capital_distances = None
     movement_finished_turn = 24
     playerIndex = data['playerIndex']
@@ -174,7 +177,7 @@ def handle_game_start(data, _):
 def chart_path(start, dest):
     print(f'chart_path({start}, {dest})')
     dest_distances = calculate_distances(dest)
-    print('dest_distances:')
+    # print('dest_distances:')
     # print_as_grid(dest_distances, width=map_width, tile_aliases={**DEFAULT_GRID_ALIASES, 0:'*'})
     path = [start]
     current = start
@@ -285,7 +288,8 @@ def print_path(path, grid=None):
 #   cities_diff: [ 1 ]
 #  */
 def handle_game_update(data, _):
-    global cities, map, generals, turn, map_width, map_height, armies, terrain, capital_distances, playerIndex, movement_finished_turn
+    global cities, map, generals, turn, map_width, map_height, armies, terrain, capital_distances, playerIndex, movement_finished_turn, processing_update
+    processing_update = True
     # Patch the city and map diffs into our local variables.
     cities = patch(cities, data['cities_diff'])
     old_map = map
@@ -324,18 +328,22 @@ def handle_game_update(data, _):
         print_path(path)
         movement_finished_turn = len(path) - 1 + turn
 
-def handle_win(_, __='unspecified'):
+    processing_update = False
+
+def game_over():
+    global game_state
+    socket.emit('leave_game')
+    game_state = 'connected'
+
+def handle_win(_, __=None):
     print('I won!')
-    socket.emit('leave_game')
-    on_connect()
-    
+    game_over()
 
-def handle_loss(_, __='unspecified'):
+def handle_loss(_, __=None):
     print('I lose.')
-    socket.emit('leave_game')
-    on_connect()
+    game_over()
 
-socket.on('connect', on_connect)
+socket.on('connect', handle_connect)
 # socket.on('reconnect', on_reconnect)
 socket.on('disconnect', handle_disconnect)
 socket.on('error_set_username', handle_set_username_error)
@@ -346,6 +354,9 @@ socket.on('game_update', handle_game_update)
 # socket.on('chat_message', on_chat_message)
 
 while True:
-    if not game_started:
-        socket.emit('set_force_start', custom_game_id, True)
+    if game_state not in ['disconnected', 'running'] and not processing_update:
+        if game_state != 'lobby':
+            join_lobby()
+        if custom_game_id not in ['ffa', '1v1']:
+            socket.emit('set_force_start', custom_game_id, True)
     socket.wait(2)
