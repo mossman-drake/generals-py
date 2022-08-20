@@ -24,20 +24,24 @@ CROWN = '👑'
 TENT = '⛺'
 HUT = '🛖'
 
-class bcolors:
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKCYAN = '\033[96m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
+class bcolors: HEADER = '\033[95m'; OKBLUE = '\033[94m'; OKCYAN = '\033[96m'; OKGREEN = '\033[92m'; WARNING = '\033[93m'; FAIL = '\033[91m'; ENDC = '\033[0m'; BOLD = '\033[1m'; UNDERLINE = '\033[4m'
 
 SERVER_URL = 'https://bot.generals.io'
 REPLAY_URL_TEMPLATE = 'http://bot.generals.io/replays/%s'
-socket = SocketIO(SERVER_URL, Namespace=BaseNamespace) # What does Namespace do?
+
+def connect():
+    global game_state, socket
+    game_state = 'connecting'
+    socket = SocketIO(SERVER_URL, Namespace=BaseNamespace) # What does Namespace do?
+    socket.on('connect', handle_connect)
+    # socket.on('reconnect', on_reconnect)
+    socket.on('disconnect', handle_disconnect)
+    socket.on('error_set_username', handle_set_username_error)
+    socket.on('game_won', handle_win)
+    socket.on('game_lost', handle_loss)
+    socket.on('game_start', handle_game_start)
+    socket.on('game_update', handle_game_update)
+    # socket.on('chat_message', on_chat_message)
 
 custom_game_id = None
 user_config =  None
@@ -67,7 +71,7 @@ if user_config == None:
     user_config = {'user_id': random.choices(ascii_letters, k=16)}
 
 connected_to_server = False
-game_state = 'disconnected'  # 'disconnected' | 'connected' | 'lobby' | 'running'
+game_state = 'disconnected'  # 'disconnected' | 'connecting' | 'connected' | 'lobby' | 'running'
 map_width = None
 map_height = None
 capital_distances = None
@@ -81,11 +85,10 @@ def handle_disconnect():
     global game_state
     print('Disconnected from server.')
     game_state = 'disconnected'
-    sys.exit(0)
 
 def handle_set_username_error(error_message):
     if error_message:
-        print('Error setting message:')
+        print('Error setting username:')
         print(error_message)
     else:
         print('Username successfully set!')
@@ -175,7 +178,7 @@ def handle_game_start(data, _):
     print('Game starting! The replay will be available after the game at ' + replay_url)
 
 def chart_path(start, dest):
-    print(f'chart_path({start}, {dest})')
+    # print(f'chart_path({start}, {dest})')
     dest_distances = calculate_distances(dest)
     # print('dest_distances:')
     # print_as_grid(dest_distances, width=map_width, tile_aliases={**DEFAULT_GRID_ALIASES, 0:'*'})
@@ -215,7 +218,9 @@ def calculate_distances(reference_point):
 
 
 DEFAULT_GRID_ALIASES = {Tile.EMPTY: ' ', Tile.MOUNTAIN: MOUNTAIN+' ', Tile.UNKNOWN: SHADES[1]+SHADES[1], Tile.UNKNOWN_OBSTACLE: MOUNTAIN+'?'}
-def print_as_grid(array, width, print_axes=True, tile_aliases='default', colored_tiles=None, column_seperator = ' '):
+def print_as_grid(array, width=None, print_axes=True, tile_aliases='default', colored_tiles=None, column_seperator = ' '):
+    if width == None:
+        width = map_width
     if len(array) % width != 0:
         print(f'Array of length {array.length} is not rectangular with width of {width}.')
         return
@@ -238,19 +243,28 @@ def print_as_grid(array, width, print_axes=True, tile_aliases='default', colored
     print(output)
 
 
+def print_map():
+    array = [army if army > 0 else terrain[i] for i, army in enumerate(armies)]
+    colored_tiles = { i:(bcolors.OKBLUE if tile == playerIndex else bcolors.FAIL) for i, tile in enumerate(terrain) if tile >= 0 }
+    for cityIdx in cities:
+        colored_tiles[cityIdx] = colored_tiles.get(cityIdx, '') + bcolors.BOLD
+    for generalIdx in [g for g in generals if g >= 0]:
+        colored_tiles[generalIdx] = colored_tiles.get(generalIdx, '') + bcolors.UNDERLINE
+    print_as_grid(array, colored_tiles=colored_tiles)
+
 # This has some weaknesses:
 # It will assume that the attack command got received before the next turn and therefore the traversal occurs.
 def traverse(start, end):
-    print(f'Traversal requested from {start} to {end}')
+    # print(f'Traversal requested from {start} to {end}')
     if terrain[start] == playerIndex:
         path = chart_path(start, end)
         original_path = path
         if armies[start] < len(path):
             path = path[0: armies[start]]
             # IMPROVE: Possibly consider paths to pick up other troops on way?
-            print(f'Insufficient armies to travel from {start} to {end} ({len(original_path) - 1} tiles).' +
-                f'Travelling {len(path) - 1} tiles to {path[-1]} instead.')
-        print(f'Moves queued: {path}')
+            # print(f'Insufficient armies to travel from {start} to {end} ({len(original_path) - 1} tiles).' +
+            #     f'Travelling {len(path) - 1} tiles to {path[-1]} instead.')
+        # print(f'Moves queued: {path}')
         for i in range(len(path)-1):
             # print(f'queueing move: ${path[i]} to ${path[i+1]}')
             socket.emit('attack', path[i], path[i+1])
@@ -288,7 +302,7 @@ def print_path(path, grid=None):
 #   cities_diff: [ 1 ]
 #  */
 def handle_game_update(data, _):
-    global cities, map, generals, turn, map_width, map_height, armies, terrain, capital_distances, playerIndex, movement_finished_turn, processing_update
+    global cities, map, generals, turn, map_width, map_height, armies, terrain, processing_update
     processing_update = True
     # Patch the city and map diffs into our local variables.
     cities = patch(cities, data['cities_diff'])
@@ -299,7 +313,7 @@ def handle_game_update(data, _):
     turn = data['turn']
 
     # The first two terms in |map| are the dimensions.
-    if map_width == None:
+    if map_width != map[0]:
         print(f'Map is {map[0]} wide by {map[1]} tall.')
 
     map_width = map[0]
@@ -314,6 +328,15 @@ def handle_game_update(data, _):
     # terrain[0] is the top-left corner of the map.
     terrain = map[size + 2: size + 2 + size]
 
+    # After game over, we will get 1 update with all land visible and the winner owning all captured land
+    # Don't run custom update logic on this.
+    if game_state == 'running':
+        custom_update_logic()
+
+    processing_update = False
+
+def custom_update_logic():
+    global capital_distances, movement_finished_turn
     if not capital_distances:
         capital_distances = calculate_distances(generals[playerIndex])
 
@@ -325,10 +348,11 @@ def handle_game_update(data, _):
         army_sizes = [army if terrain[i] == playerIndex else 0 for i, army in enumerate(armies)]
         largest_army_loc = army_sizes.index(max(army_sizes))
         path = traverse(largest_army_loc, furthest_unexplored_loc)
-        print_path(path)
+        # print('cities: ', cities)
+        # print_path(path)
         movement_finished_turn = len(path) - 1 + turn
 
-    processing_update = False
+    print_map()
 
 def game_over():
     global game_state
@@ -343,18 +367,12 @@ def handle_loss(_, __=None):
     print('I lose.')
     game_over()
 
-socket.on('connect', handle_connect)
-# socket.on('reconnect', on_reconnect)
-socket.on('disconnect', handle_disconnect)
-socket.on('error_set_username', handle_set_username_error)
-socket.on('game_won', handle_win)
-socket.on('game_lost', handle_loss)
-socket.on('game_start', handle_game_start)
-socket.on('game_update', handle_game_update)
-# socket.on('chat_message', on_chat_message)
+
 
 while True:
-    if game_state not in ['disconnected', 'running'] and not processing_update:
+    if game_state == 'disconnected':
+        connect()
+    elif game_state not in ['connecting', 'running'] and not processing_update:
         if game_state != 'lobby':
             join_lobby()
         if custom_game_id not in ['ffa', '1v1']:
