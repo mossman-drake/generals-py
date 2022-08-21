@@ -176,6 +176,7 @@ def handle_game_start(data, _):
     # clearInterval(force_start_interval);
     replay_url = 'http://bot.generals.io/replays/' + quote(data['replay_id'])
     print('Game starting! The replay will be available after the game at ' + replay_url)
+    print(f'I am player {playerIndex}')
 
 def chart_path(start, dest):
     # print(f'chart_path({start}, {dest})')
@@ -243,9 +244,10 @@ def print_as_grid(array, width=None, print_axes=True, tile_aliases='default', co
     print(output)
 
 
+player_colors = [bcolors.FAIL, bcolors.OKBLUE]
 def print_map():
     array = [army if army > 0 else terrain[i] for i, army in enumerate(armies)]
-    colored_tiles = { i:(bcolors.OKBLUE if tile == playerIndex else bcolors.FAIL) for i, tile in enumerate(terrain) if tile >= 0 }
+    colored_tiles = { i:player_colors[tile] for i, tile in enumerate(terrain) if tile >= 0 }
     for cityIdx in cities:
         colored_tiles[cityIdx] = colored_tiles.get(cityIdx, '') + bcolors.BOLD
     for generalIdx in [g for g in generals if g >= 0]:
