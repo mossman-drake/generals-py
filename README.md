@@ -45,3 +45,5 @@ generals.io bot written in python
 - Consider using a short-term optimization algorthm for land expansion
 	- This may not be very feasible for live gameplay
 	- Even running non-live to get a sense for the best expansion strategies for the first ~100-150 turns might be beneficial
+- Remember cities / Capitals that have been seen
+  - Even if the enemy retakes the land so that it is no longer within vision, we don't need to lose that knowledge
