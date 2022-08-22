@@ -70,14 +70,8 @@ if user_config == None:
     print('Joining as Anonymous.')
     user_config = {'user_id': random.choices(ascii_letters, k=16)}
 
-connected_to_server = False
+
 game_state = 'disconnected'  # 'disconnected' | 'connecting' | 'connected' | 'lobby' | 'running'
-map_width = None
-map_height = None
-capital_distances = None
-traversal_paths = None
-movement_finished_turn = 24
-turn = 0
 processing_update = False
 
 
@@ -136,13 +130,24 @@ class Tile(object):
     UNKNOWN = -3
     UNKNOWN_OBSTACLE = -4 # Cities and Mountains show up as Obstacles in the fog of war.
 
-# Game data.
-playerIndex = None
-generals = None # The indicies of generals we have vision of.
-cities = [] # The indicies of cities we have vision of.
-terrain = None
-armies = None
-map = []
+
+def reset_globals():
+    global playerIndex, generals, cities, terrain, armies, map, capital_distances, movement_finished_turn, game_start_data, scores, map_width, map_height, turn
+    # Game data.
+    playerIndex = None
+    generals = None # The indicies of generals we have vision of.
+    cities = [] # The indicies of cities we have vision of.
+    terrain = None
+    armies = None
+    map = []
+    capital_distances = None
+    movement_finished_turn = 24
+    game_start_data = None
+    scores = None
+    map_width = None
+    map_height = None
+    turn = None
+
 
 # Returns a new array created by patching the diff into the old array.
 # The diff formatted with alternating matching and mismatching segments:
@@ -166,12 +171,28 @@ def patch(old, diff):
         i+=1
     return out
 
+
+# {
+#     'playerIndex': 0,
+#     'playerColors': [0, 1],
+#     'replay_id': 'Slxq8MkJj',
+#     'chat_room': 'game_1661048455813hE5pKeqEdFLsHnrZACqK',
+#     'usernames': [
+#         '[Bot] Dark Deltoid',
+#         '[Bot] Android'
+#     ],
+#     'teams': [1, 2],
+#     'game_type': 'custom',
+#     'swamps': [],
+#     'lights': []
+# }
 def handle_game_start(data, _):
-    global playerIndex, game_state, movement_finished_turn, capital_distances
+    global playerIndex, game_state, movement_finished_turn, capital_distances, game_start_data
     # Get ready to start playing the game.
+    reset_globals()
+    print(data)
     game_state = 'running'
-    capital_distances = None
-    movement_finished_turn = 24
+    game_start_data = data
     playerIndex = data['playerIndex']
     # clearInterval(force_start_interval);
     replay_url = 'http://bot.generals.io/replays/' + quote(data['replay_id'])
@@ -219,7 +240,7 @@ def calculate_distances(reference_point):
 
 
 DEFAULT_GRID_ALIASES = {Tile.EMPTY: ' ', Tile.MOUNTAIN: MOUNTAIN+' ', Tile.UNKNOWN: SHADES[1]+SHADES[1], Tile.UNKNOWN_OBSTACLE: MOUNTAIN+'?'}
-def print_as_grid(array, width=None, print_axes=True, tile_aliases='default', colored_tiles=None, column_seperator = ' '):
+def print_as_grid(array, width=None, print_axes=True, tile_aliases='default', colored_tiles=None, column_seperator = ' ', print=True):
     if width == None:
         width = map_width
     if len(array) % width != 0:
@@ -241,8 +262,30 @@ def print_as_grid(array, width=None, print_axes=True, tile_aliases='default', co
     color_wrap_if_tuple = lambda tile, contents: tile[1] + contents + bcolors.ENDC if type(tile) is tuple else contents
     array = [color_wrap_if_tuple(tile, wc_rjust(str(tile[0] if type(tile) is tuple else tile), print_width)) for tile in array]
     output = '\n'.join([column_seperator.join(array[row_idx*(width + (1 if print_axes else 0)):(row_idx+1)*(width + (1 if print_axes else 0))]) for row_idx in range(len(array)//(width + (1 if print_axes else 0)))])
-    print(output)
+    if print:
+        print(output)
+    return output
 
+#   scores: [
+#     { total: 14, tiles: 7, i: 0, color: 0, dead: false },
+#     { total: 14, tiles: 5, i: 1, color: 1, dead: false }
+#   ],
+def scoreboard():
+    usernames = game_start_data['usernames']
+    username_width = max([wcswidth(u) for u in [*usernames, 'Player']])
+    scores_by_index = [[s for s in scores if s['i'] == i][0] for i in range(len(usernames))]
+    scoreboard_rows = [('Player', 'Army', 'Land'),
+        *[(usernames[i],
+        str(scores_by_index[i]['total']),
+        str(scores_by_index[i]['tiles']))
+        for i in range(len(usernames))]]
+    column_widths = [max([len(str(row[col_idx])) for row in scoreboard_rows]) for col_idx in range(3)]
+    stringified_scoreboard = '\n'.join([' '.join([
+        (player_colors[i-1] if i else '')+wc_rjust(line[0],column_widths[0])+(bcolors.ENDC if i else ''),
+        wc_rjust(line[1],column_widths[1]),
+        wc_rjust(line[2],column_widths[2])])
+        for i, line in enumerate(scoreboard_rows)])
+    return stringified_scoreboard
 
 player_colors = [bcolors.FAIL, bcolors.OKBLUE]
 def print_map():
@@ -252,7 +295,9 @@ def print_map():
         colored_tiles[cityIdx] = colored_tiles.get(cityIdx, '') + bcolors.BOLD
     for generalIdx in [g for g in generals if g >= 0]:
         colored_tiles[generalIdx] = colored_tiles.get(generalIdx, '') + bcolors.UNDERLINE
-    print_as_grid(array, colored_tiles=colored_tiles)
+    battlefield = print_as_grid(array, colored_tiles=colored_tiles, print=False)
+    turn_string = 'Turn ' + str(turn//2)+('.' if turn%2 else '')
+    print('\n'.join([turn_string, scoreboard(),battlefield]))
 
 # This has some weaknesses:
 # It will assume that the attack command got received before the next turn and therefore the traversal occurs.
@@ -304,18 +349,25 @@ def print_path(path, grid=None):
 #   cities_diff: [ 1 ]
 #  */
 def handle_game_update(data, _):
-    global cities, map, generals, turn, map_width, map_height, armies, terrain, processing_update
+    global cities, map, generals, turn, map_width, map_height, armies, terrain, processing_update, scores
     processing_update = True
+    scores = data['scores']
     # Patch the city and map diffs into our local variables.
+    old_cities = cities
     cities = patch(cities, data['cities_diff'])
-    old_map = map
+    cities = [c for c in set(old_cities) | set(cities)] # Remember cities that we've seen in the past
+
     map = patch(map, data['map_diff'])
-    # We could do logic based on the diff between old and new map here
+
+    old_generals = generals
     generals = data['generals']
+    if old_generals is not None:  # Remember if we've seen generals
+        generals = [max(old_generals[i], general) for i, general in enumerate(generals)]
+
     turn = data['turn']
 
     # The first two terms in |map| are the dimensions.
-    if map_width != map[0]:
+    if map_width is None:
         print(f'Map is {map[0]} wide by {map[1]} tall.')
 
     map_width = map[0]

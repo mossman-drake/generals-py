@@ -9,7 +9,7 @@ generals.io bot written in python
 		- I'm not actually sure the best way to achieve this thought
 - Joining custom lobbies with url parameters can be used to set game properties. (e.g. https://bot.generals.io/games/delta?speed=4&spectate=true willjoin, change the game speed to 4x and become a spectator). I wonder if this could be utilized to automatically change the game speed during testing.
 - Still want better game state display
-    - scoreboard and turn counter
+    - ~~scoreboard and turn counter~~
     - map display improvements
         - easier to quickly identify cities / capitals
             - potentially alternate between displaying symbols and army sizes / ownership coloring on these tiles?
