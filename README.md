@@ -47,3 +47,10 @@ generals.io bot written in python
 	- Even running non-live to get a sense for the best expansion strategies for the first ~100-150 turns might be beneficial
 - Remember cities / Capitals that have been seen
   - Even if the enemy retakes the land so that it is no longer within vision, we don't need to lose that knowledge
+#### Other
+- I would like to be able to know the timing of events
+    - Are we getting game_update exactly 0.5 seconds apart every time?
+        - What's the variance?
+    - How close can we send an attack move before the next game_update for it to be executed on that update?
+        - Is this just a product of ping?
+    - Mostly this would be useful info if / when we have intensive processing going on
