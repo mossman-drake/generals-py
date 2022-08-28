@@ -122,8 +122,10 @@ def set_username_if_necessary():
         socket.emit('set_username', user_config['user_id'], user_config['username'])
 
 def join_lobby():
-    global game_state
+    global game_state, time_in_lobby
     game_state = 'lobby'
+    time_in_lobby = time()
+
     if custom_game_id == '1v1':
         # Join the 1v1 queue.
         socket.emit('join_1v1', user_config['user_id'])
@@ -272,7 +274,7 @@ def print_as_grid(array, width=None, print_axes=True, tile_aliases='default', co
     if width == None:
         width = map_width
     if len(array) % width != 0:
-        print(f'Array of length {array.length} is not rectangular with width of {width}.')
+        print(f'Array of length {len(array)} is not rectangular with width of {width}.')
         return
     if tile_aliases == 'default':
         tile_aliases = DEFAULT_GRID_ALIASES
@@ -342,15 +344,18 @@ def traverse(start, end):
         return path
     else:
         print(f'traversal failed. terrain[{start}] = {terrain[start]} != {playerIndex}')
-        print_as_grid(terrain, width=map_width)
+        # print_as_grid(terrain, width=map_width)
+
+directions = {'→': right, '←': left, '↑': up, '↓': down}
+def direction_of_move(move):
+    return [symbol for symbol, translation in  directions.items() if translation(move[0]) == move[1]][0]
 
 def print_path(path, grid=None):
-    directions = {'→': right, '←': left, '↑': up, '↓': down}
     if grid is None:
         grid = terrain[:]
     last_tile = path[0]
     for tile in path[1:]:
-        correct_direction = [symbol for symbol, translation in  directions.items() if translation(last_tile) == tile][0]
+        correct_direction = direction_of_move((last_tile, tile))
         grid[last_tile] = correct_direction
         last_tile = tile
     grid[generals[playerIndex]] = 314
@@ -452,5 +457,6 @@ while True:
         if game_state != 'lobby':
             join_lobby()
         if custom_game_id not in ['ffa', '1v1']:
-            socket.emit('set_force_start', custom_game_id, True)
-    socket.wait(2)
+            if time() - time_in_lobby > 4:
+                socket.emit('set_force_start', custom_game_id, True)
+    socket.wait(1)
