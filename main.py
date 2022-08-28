@@ -423,6 +423,15 @@ def custom_update_logic():
     if not capital_distances:
         capital_distances = calculate_distances(generals[playerIndex])
 
+    # if turn == 24:
+    #     socket.emit('leave_game')
+    #     print_map()
+    #     optimal_plans = plan_optimal_moveset(land_plus_armies, 50)
+    #     print('end')
+    #     # end_state = optimal_plans[1][0][0]
+    #     # print_as_grid(end_state)
+    #     # print('moves:', optimal_plans[1][0][1])
+
     if turn >= movement_finished_turn:
         unowned_territory_distances = [-5 if terrain[i] == playerIndex else tile for i, tile in enumerate(capital_distances)]
         # print("unowned_territory_distances:")
@@ -436,6 +445,95 @@ def custom_update_logic():
         movement_finished_turn = len(path) - 1 + turn
 
     print_map()
+
+
+# Current state is a single-dimension array representing the board
+# global map_width shows where to split rows
+# All board is to be either Tile.EMPTY, Tile.UNKNOWN_OBSTACLE, or a non-negative army value
+# cities is a list of indices for cities already owned
+# This iteration will not work for capturing cities.
+# Unowned cities are expected to be Tile.UNKNOWN_OBSTACLE and will be avoided
+# move is either None (no movement) or a tuple of indices representing (start, finish)
+# turn is the technically "half-turn" count from game_update (used for growing land)
+def next_state(board, turn, owned_cities, move, half=False):
+    if len(board) % map_width != 0:
+        print(f'next_state: Array of length {len(board)} is not rectangular with width of {map_width}.')
+        return
+    if not all([t >= 0 or t in [Tile.EMPTY, Tile.UNKNOWN_OBSTACLE] for t in board]):
+        print(f'next_state: Board has illegal values.')
+    if not all([board[city] >= 0 for city in owned_cities]):
+        print(f'City tiles must be owned')
+    if move is not None:
+        if not board[move[0]] >= 0:
+            print('Must move from an owned tile')
+        if not (board[move[1]] >= 0 or board[move[1]] == Tile.EMPTY):
+            print('Must move to an empty or owned tile')
+    board = board[:] # Copy
+    if move is not None:
+        board[move[1]] = board[move[0]] - 1 + max(board[move[1]], 0)
+        board[move[0]] = 1
+    if turn % 2 == 1: # Next turn is even (Or a non half-turn)
+        for city in owned_cities:
+            board[city] += 1
+    if turn % 50 == 49: # Next turn is a 25th turn
+        board = [tile + (1 if tile >= 0 else 0) for tile in board]
+    return (board, turn+1)
+
+def possible_moves(board, include_half_moves=False):
+    mobile_armies = [i for i, tile in enumerate(board) if tile >= 2]
+    moves = []
+    for start in mobile_armies:
+        for move in cardinal_translations:
+            end = move(start)
+            if end is not None and board[end] != Tile.UNKNOWN_OBSTACLE:
+                moves.append((start, end))
+    return moves
+
+def land_plus_armies(board):
+    armies = [tile for tile in board if tile >=0]
+    return len(armies) + sum(armies)
+
+def plan_optimal_moveset(scoring_function, final_turn):
+    board = [armies[i] if tile >= 0 else
+             Tile.UNKNOWN_OBSTACLE if i in cities or tile == Tile.MOUNTAIN else
+             Tile.EMPTY if tile == Tile.UNKNOWN else tile
+             for i, tile in enumerate(terrain)]
+    owned_cities = [*[c for c in cities if board[c] >= 0], generals[playerIndex]]
+    queue = [(board, turn, [])] # array of tuples: [(board:array, turn:int, moves:array<tuple>), ...]
+    visited = [] # array of tuples: [(board, turn), ...]
+    optimal_plans = {} # keys of turn numbers; values are (score, [(board:array, moves:array<tuple>), ...])
+    while len(queue) > 0:
+        board, game_turn, moves = queue.pop(0)
+        visited.append((board, game_turn))
+        score = scoring_function(board)
+        if game_turn not in optimal_plans:
+            optimal_plans[game_turn] = {}
+        if score not in optimal_plans[game_turn]:
+            optimal_plans[game_turn][score] = []
+        optimal_plans[game_turn][score].append((land_owned(board),
+            [(coord_to_x_y(move[0]), direction_of_move(move)) for move in moves]))
+        # if game_turn not in optimal_plans or score > optimal_plans[game_turn][0]: # Best (and maybe first) for this turn
+        #     optimal_plans[game_turn] = (score, [(board, moves)])
+        # if score == optimal_plans[game_turn][0]: # Tied for best scoring moveset at this turn
+        #     optimal_plans[game_turn][1].append((board, moves))
+        if game_turn == final_turn:
+            continue # No need to look at moves after final_turn
+        possible_next_moves = possible_moves(board)
+        if len(possible_next_moves) == 0:
+            possible_next_moves = [None]
+        for move in possible_next_moves:
+            if move is not None and (move[1], move[0]) in moves: # No reverse moves
+                continue
+            state = next_state(board, game_turn, owned_cities, move)
+            if state not in visited:
+                queue.append(state+([*moves, move],))
+    return optimal_plans
+
+def land_owned(board):
+    return [coord_to_x_y(i) for i, tile in enumerate(board) if tile >= 0]
+
+def coord_to_x_y(coord):
+    return (coord % map_width, coord // map_width)
 
 def game_over():
     global game_state
