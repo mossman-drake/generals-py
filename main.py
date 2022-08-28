@@ -6,9 +6,15 @@ from turtle import color
 from urllib.parse import quote
 from string import ascii_letters
 from socketIO_client import SocketIO, BaseNamespace
+from time import time
+import re
 
-def wc_rjust(text, length, padding=' '):
-    return padding * max(0, (length - wcswidth(text))) + text
+ANSII_FORMATTING_REGEX = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
+def remove_formatting(text):
+    return ANSII_FORMATTING_REGEX.sub('',text)
+
+def rjust(text, length, padding=' '):
+    return padding * max(0, (length - wcswidth(remove_formatting(text)))) + text
 
 SHOGI_EMPTY = '☖'
 SHOGI_FULL = '☗'
@@ -24,7 +30,29 @@ CROWN = '👑'
 TENT = '⛺'
 HUT = '🛖'
 
-class bcolors: HEADER = '\033[95m'; OKBLUE = '\033[94m'; OKCYAN = '\033[96m'; OKGREEN = '\033[92m'; WARNING = '\033[93m'; FAIL = '\033[91m'; ENDC = '\033[0m'; BOLD = '\033[1m'; UNDERLINE = '\033[4m'
+def ansii_code(text_color, background_color=None):
+    r0,g0,b0 = text_color
+    bgnd_str = '' if background_color is None else ';48;2;' + ';'.join([str(c) for c in background_color])
+    return f'\x1b[38;2;{r0};{g0};{b0}{bgnd_str}m'
+
+PLAYER_BASE_COLORS = [
+    (255, 40, 40),  # Red
+    (30, 100, 255), # Blue
+    (0, 150, 0),    # Green
+    (0, 170, 170),  # Sea-green
+    (255, 130, 0),  # Orange
+    (255, 70, 255), # Pink
+    (100, 0, 100),  # Purple
+    (120, 0, 0),    # Maroon
+]
+CAPITAL_BACKGROUND = (235, 235, 235)    # Mostly-White
+CITY_BACKGROUND = (0, 0, 0)             # Black
+RESET_COLOR = '\x1b[0m'
+NEUTRAL_CITY = ansii_code((255, 255, 255), CITY_BACKGROUND)
+
+def player_color(player_index, city=False, capital=False):
+    return ansii_code(PLAYER_BASE_COLORS[player_index], CAPITAL_BACKGROUND if capital else CITY_BACKGROUND if city else None)
+
 
 SERVER_URL = 'https://bot.generals.io'
 REPLAY_URL_TEMPLATE = 'http://bot.generals.io/replays/%s'
@@ -239,7 +267,7 @@ def calculate_distances(reference_point):
     return distances
 
 
-DEFAULT_GRID_ALIASES = {Tile.EMPTY: ' ', Tile.MOUNTAIN: MOUNTAIN+' ', Tile.UNKNOWN: SHADES[1]+SHADES[1], Tile.UNKNOWN_OBSTACLE: MOUNTAIN+'?'}
+DEFAULT_GRID_ALIASES = {Tile.EMPTY: ' ', Tile.MOUNTAIN: MOUNTAIN+' ', Tile.UNKNOWN: SHADES[1]*2, Tile.UNKNOWN_OBSTACLE: MOUNTAIN+'?'}
 def print_as_grid(array, width=None, print_axes=True, tile_aliases='default', colored_tiles=None, column_seperator = ' ', print=True):
     if width == None:
         width = map_width
@@ -259,8 +287,8 @@ def print_as_grid(array, width=None, print_axes=True, tile_aliases='default', co
         for row_idx in range(len(array)//width-1, -1, -1): # Reverse to insert vertical axis labels
             array[row_idx*width:row_idx*width] = [' ' if row_idx == 0 else row_idx-1]
     print_width = max([wcswidth(str(tile[0] if type(tile) is tuple else tile)) for tile in array])
-    color_wrap_if_tuple = lambda tile, contents: tile[1] + contents + bcolors.ENDC if type(tile) is tuple else contents
-    array = [color_wrap_if_tuple(tile, wc_rjust(str(tile[0] if type(tile) is tuple else tile), print_width)) for tile in array]
+    color_wrap_if_tuple = lambda tile, contents: tile[1] + contents + RESET_COLOR if type(tile) is tuple else contents
+    array = [color_wrap_if_tuple(tile, rjust(str(tile[0] if type(tile) is tuple else tile), print_width)) for tile in array]
     output = '\n'.join([column_seperator.join(array[row_idx*(width + (1 if print_axes else 0)):(row_idx+1)*(width + (1 if print_axes else 0))]) for row_idx in range(len(array)//(width + (1 if print_axes else 0)))])
     if print:
         print(output)
@@ -272,8 +300,7 @@ def print_as_grid(array, width=None, print_axes=True, tile_aliases='default', co
 #   ],
 def scoreboard():
     usernames = game_start_data['usernames']
-    username_width = max([wcswidth(u) for u in [*usernames, 'Player']])
-    scores_by_index = [[s for s in scores if s['i'] == i][0] for i in range(len(usernames))]
+    scores_by_index = sorted(scores, key=lambda s: s['i'])
     scoreboard_rows = [('Player', 'Army', 'Land'),
         *[(usernames[i],
         str(scores_by_index[i]['total']),
@@ -281,23 +308,20 @@ def scoreboard():
         for i in range(len(usernames))]]
     column_widths = [max([len(str(row[col_idx])) for row in scoreboard_rows]) for col_idx in range(3)]
     stringified_scoreboard = '\n'.join([' '.join([
-        (player_colors[i-1] if i else '')+wc_rjust(line[0],column_widths[0])+(bcolors.ENDC if i else ''),
-        wc_rjust(line[1],column_widths[1]),
-        wc_rjust(line[2],column_widths[2])])
+        (player_color(i-1) if i else '')+rjust(line[0],column_widths[0])+(RESET_COLOR if i else ''),
+        rjust(line[1],column_widths[1]),
+        rjust(line[2],column_widths[2])])
         for i, line in enumerate(scoreboard_rows)])
     return stringified_scoreboard
 
-player_colors = [bcolors.FAIL, bcolors.OKBLUE]
-def print_map():
-    array = [army if army > 0 else terrain[i] for i, army in enumerate(armies)]
-    colored_tiles = { i:player_colors[tile] for i, tile in enumerate(terrain) if tile >= 0 }
-    for cityIdx in cities:
-        colored_tiles[cityIdx] = colored_tiles.get(cityIdx, '') + bcolors.BOLD
-    for generalIdx in [g for g in generals if g >= 0]:
-        colored_tiles[generalIdx] = colored_tiles.get(generalIdx, '') + bcolors.UNDERLINE
+def print_map(include_turn_counter=True, include_scoreboard=True):
+    array = [armies[i] if tile >= 0 or i in cities else tile for i, tile in enumerate(terrain)]
+    colored_tiles = {
+        **{i: NEUTRAL_CITY for i in cities},
+        **{i: player_color(tile, city=i in cities, capital=i in generals) for i, tile in enumerate(terrain) if tile >= 0}}
     battlefield = print_as_grid(array, colored_tiles=colored_tiles, print=False)
     turn_string = 'Turn ' + str(turn//2)+('.' if turn%2 else '')
-    print('\n'.join([turn_string, scoreboard(),battlefield]))
+    print('\n'.join([turn_string, scoreboard(), battlefield]))
 
 # This has some weaknesses:
 # It will assume that the attack command got received before the next turn and therefore the traversal occurs.
@@ -330,7 +354,7 @@ def print_path(path, grid=None):
         grid[last_tile] = correct_direction
         last_tile = tile
     grid[generals[playerIndex]] = 314
-    print_as_grid(grid, width=map_width, tile_aliases={**DEFAULT_GRID_ALIASES, 314:CROWN}, colored_tiles={key:bcolors.OKGREEN for key in path}, column_seperator='')
+    print_as_grid(grid, colored_tiles={key: ansii_code((0, 0, 0), player_color(playerIndex)) for key in path}, column_seperator='')
 
 # /**
 #   scores: [
@@ -420,8 +444,6 @@ def handle_win(_, __=None):
 def handle_loss(_, __=None):
     print('I lose.')
     game_over()
-
-
 
 while True:
     if game_state == 'disconnected':
