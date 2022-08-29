@@ -4,15 +4,15 @@ generals.io bot written in python
 
 ## Ideas for improvement
 ### Structure / Utility
-- Separate out solution from boilderplate / skeleton
-	- There's an object-oriented example of this [here](https://github.com/personalcomputer/generalsio) but I didn't like the extra implementation decisions and length of syntax the the OOP structure added.
-		- I'm not actually sure the best way to achieve this thought
+- ~~Separate out solution from boilderplate / skeleton~~
+	- ~~There's an object-oriented example of this [here](https://github.com/personalcomputer/generalsio) but I didn't like the extra implementation decisions and length of syntax the the OOP structure added.~~
+		- ~~I'm not actually sure the best way to achieve this thought~~
 - Joining custom lobbies with url parameters can be used to set game properties. (e.g. https://bot.generals.io/games/delta?speed=4&spectate=true willjoin, change the game speed to 4x and become a spectator). I wonder if this could be utilized to automatically change the game speed during testing.
 - Still want better game state display
     - ~~scoreboard and turn counter~~
     - map display improvements
-        - easier to quickly identify cities / capitals
-            - potentially alternate between displaying symbols and army sizes / ownership coloring on these tiles?
+        - ~~easier to quickly identify cities / capitals~~
+            - ~~potentially alternate between displaying symbols and army sizes / ownership coloring on these tiles?~~
         - improve readability once army sizes start topping 3 digits
             - maybe even just make print_width never decrease within a single game.
     - at some point it might be worth considering moving away from the terminal?
