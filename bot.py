@@ -1,14 +1,15 @@
 import random
 import sys
 import json
+from time import time
 
 from generalsio import Tile, GameClient, GameClientListener
 from world import World as BasicWorld
 
 
 class World(BasicWorld):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, map_width, map_height, player_index, game_start_data):
+        super().__init__(map_width, map_height, player_index, game_start_data)
         self.capital_distances = None
         self.movement_finished_turn = 24
 
@@ -19,38 +20,33 @@ class World(BasicWorld):
         down = lambda start: None if start > self.map_width * (self.map_height - 1) - 1 else start + self.map_width
         return [right, up, left, down]
 
+    def update(self, terrain, armies, cities, generals, turn, scores):
+        super().update(terrain, armies, cities, generals, turn, scores)
+        # Improve: Only do this when new information warrants it (city found)
+        self.capital_distances = self.calculate_distances(self.generals[self.player_index])
 
-class Bot(GameClientListener, GameClient):
-    def __init__(self, game_id, user_id):
-        super().__init__(game_id, user_id)
-        self.world = World()
-        self.add_listener(self)
+    def is_obstacle(self, loc):
+        return self.terrain[loc] in (Tile.UNKNOWN_OBSTACLE, Tile.MOUNTAIN)
 
-    def handle_game_start(self, map_size, player_index, game_start_data):
-        self.world.map_width = map_size[0]
-        self.world.map_height = map_size[1]
-        self.world.player_index = player_index
-        self.world.game_start_data = game_start_data
-
-    def calculate_distances(self, reference_point):
+    def calculate_distances(self, reference_point, obstacle_fn='default'):
         # print(f'calculate_distances({reference_point}); terrain:')
         # print_as_grid(terrain, width=map_width, tile_aliases={**DEFAULT_GRID_ALIASES, -5:'*'})
-        # Improve: Make function to filter array by obstaces?
-        distances = [Tile.UNKNOWN_OBSTACLE if t in (Tile.UNKNOWN_OBSTACLE, Tile.MOUNTAIN) else Tile.EMPTY for t in self.world.terrain]
+        if obstacle_fn == 'default':
+            obstacle_fn = lambda t: self.is_obstacle(t)
+        distances = [Tile.UNKNOWN_OBSTACLE if obstacle_fn(i) else Tile.EMPTY for i in range(len(self.terrain))]
         distances[reference_point] = 0; # 0 distance
         spots_to_check = [reference_point]
         while len(spots_to_check) > 0:
             current = spots_to_check.pop(0)
-            for translation in self.world.cardinal_translations():
+            for translation in self.cardinal_translations():
                 new_spot = translation(current)
                 if new_spot != None and distances[new_spot] == Tile.EMPTY:
                     distances[new_spot] = distances[current] + 1
                     spots_to_check.append(new_spot)
         return distances
 
-    def chart_path(self, start, dest):
-        # print(f'chart_path({start}, {dest})')
-        dest_distances = self.calculate_distances(dest)
+    def chart_path(self, start, dest, obstacle_fn='default'):
+        dest_distances = self.calculate_distances(dest, obstacle_fn)
         # print('dest_distances:')
         # print_as_grid(dest_distances, width=map_width, tile_aliases={**DEFAULT_GRID_ALIASES, 0:'*'})
         path = [start]
@@ -58,20 +54,31 @@ class Bot(GameClientListener, GameClient):
         while current != dest:
             # print(f'pathing over {current}')
             # Choose the step that results in the least remaining distance to destination
-            next_step = [t(current) for t in self.world.cardinal_translations() if t(current) is not None and dest_distances[t(current)] !=Tile.UNKNOWN_OBSTACLE]
+            next_step = [t(current) for t in self.cardinal_translations() if t(current) is not None and dest_distances[t(current)] != Tile.UNKNOWN_OBSTACLE]
             next_step.sort(key=lambda a: dest_distances[a])
             next_step = next_step[0]
             path.append(next_step)
             current = next_step
         return path
 
+
+class Bot(GameClientListener, GameClient):
+    def __init__(self, game_id, user_id):
+        super().__init__(game_id, user_id)
+        self.add_listener(self)
+
+    def handle_game_start(self, map_size, player_index, game_start_data):
+        self.world = World(map_size[0], map_size[1], player_index, game_start_data)
+
     def traverse(self, start, end):
         # print(f'Traversal requested from {start} to {end}')
         if self.world.terrain[start] == self.world.player_index:
-            path = self.chart_path(start, end)
+            obstacle_fn = lambda i: self.world.is_obstacle(i) or i in self.world.cities or (self.world.terrain[i] < 0 and self.world.armies[i] > 0)
+            path = self.world.chart_path(start, end, obstacle_fn)
             original_path = path
             if self.world.armies[start] < len(path):
-                path = path[0: self.world.armies[start]]
+                # path = path[0: self.world.armies[start]]
+                path = path[0:2]
                 # IMPROVE: Possibly consider paths to pick up other troops on way?
                 # print(f'Insufficient armies to travel from {start} to {end} ({len(original_path) - 1} tiles).' +
                 #     f'Travelling {len(path) - 1} tiles to {path[-1]} instead.')
@@ -85,13 +92,10 @@ class Bot(GameClientListener, GameClient):
             # print_as_grid(terrain, width=map_width)
 
     def handle_game_update(self, terrain, armies, cities, generals, half_turns, scores):
+        # update_start_time = time()
         self.world.update(terrain, armies, cities, generals, half_turns, scores)
         # TODO: Remember cities
         # TODO: Remember general locations
-        
-    
-        if not self.world.capital_distances:
-            self.world.capital_distances = self.calculate_distances(self.world.generals[self.world.player_index])
 
         if self.world.turn >= self.world.movement_finished_turn:
             unowned_territory_distances = [-5 if terrain[i] == self.world.player_index else tile for i, tile in enumerate(self.world.capital_distances)]
@@ -104,8 +108,8 @@ class Bot(GameClientListener, GameClient):
             # print('cities: ', cities)
             # print_path(path)
             self.world.movement_finished_turn = len(path) - 1 + self.world.turn
-
         self.world.print_map()
+        # print(f'Time in update function: {round(time()-update_start_time,2)} seconds')
 
     def handle_game_over(self, won, replay_url):
         if won:
@@ -147,15 +151,17 @@ def main():
             print(f'Error reading from user_config {user_config_filename}')
             user_config = None
 
+    user_id = None if user_config is None else user_config['user_id']
+
     while True:
-        bot = Bot(game_id, user_config['user_id'])
+        bot = Bot(game_id, user_id)
         
         if game_id == '1v1':
             bot.join_1v1_queue()
         elif game_id == 'ffa':
             bot.join_ffa_queue()
         else:
-            bot.join_custom(game_id, force_start_delay=5)
+            bot.join_custom(game_id, force_start_delay=10)
 
         bot.wait_for_game_end()
 

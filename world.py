@@ -1,18 +1,19 @@
 from display import RESET_COLOR, NEUTRAL_CITY, player_color, rjust, print_as_grid
 
 class World(object):
-    def __init__(self):
+    def __init__(self, map_width, map_height, player_index, game_start_data):
+        self.map_width = map_width
+        self.map_height = map_height
+        self.game_start_data = game_start_data
+        self.player_index = player_index
+
         self.map = []
-        self.map_width = None
-        self.map_height = None
         self.terrain = None
         self.armies = None
         self.cities = None
         self.generals = None
         self.turn = None
         self.scores = None
-        self.game_start_data = None
-        self.player_index = None
 
     def update(self, terrain, armies, cities, generals, turn, scores):
         self.terrain = terrain
