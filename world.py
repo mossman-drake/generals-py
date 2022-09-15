@@ -48,7 +48,7 @@ class World(object):
         colored_tiles = {
             **{i: NEUTRAL_CITY for i in self.cities},
             **{i: player_color(tile, city=i in self.cities, capital=i in self.generals) for i, tile in enumerate(self.terrain) if tile >= 0}}
-        battlefield = print_as_grid(array, self.map_width, colored_tiles=colored_tiles, print=False)
+        battlefield = print_as_grid(array, self.map_width, colored_tiles=colored_tiles, should_print=False)
         map_components = [battlefield]
         if include_scores:
             map_components.insert(0, self.scoreboard())

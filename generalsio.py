@@ -35,8 +35,6 @@ class GameClient(object):
     SERVER_URL = 'https://bot.generals.io'
     REPLAY_URL_TEMPLATE = 'https://bot.generals.io/replays/%s'
 
-    CUSTOM_GAME_START_DELAY = 5
-
     def __init__(self, game_id, user_id=None):
         self._sock = SocketIO(GameClient.SERVER_URL, Namespace=BaseNamespace)
 
@@ -63,6 +61,7 @@ class GameClient(object):
         self._cities = []
 
         self._listeners = []
+        self._chat_room = None
 
     def __del__(self):
         pass
@@ -90,7 +89,7 @@ class GameClient(object):
         while not self.game_started:
             if time() - join_time > force_start_delay:
                 self.set_force_start(game_id)
-            self.wait(seconds=1)
+            self.wait(seconds=3)
 
 
     def set_force_start(self, game_id, set_on=True):
@@ -113,7 +112,8 @@ class GameClient(object):
         self._sock.wait(seconds)
 
     def _leave_game(self):
-        self._sock.emit('leave_game')
+        # self._sock.emit('leave_game')
+        del self._sock
 
     def _on_game_won(self, data, _):
         self.game_over = True
@@ -151,11 +151,13 @@ class GameClient(object):
             'lights': []
         }
         """
+        self._chat_room = data['chat_room']
         self.game_started = True
         self._is_first_update = True
         self._game_Start_data = data
         self._player_index = data['playerIndex']
         self._replay_url = GameClient.REPLAY_URL_TEMPLATE % data['replay_id']
+        print(f'Watch replay at {self._replay_url}')
 
     def _on_game_update(self, data, _):
         """

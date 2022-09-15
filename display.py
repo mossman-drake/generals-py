@@ -48,7 +48,7 @@ def player_color(player_index, city=False, capital=False):
     return color_code(PLAYER_BASE_COLORS[player_index], CAPITAL_BACKGROUND if capital else CITY_BACKGROUND if city else None)
 
 DEFAULT_GRID_ALIASES = {Tile.EMPTY: ' ', Tile.MOUNTAIN: MOUNTAIN+' ', Tile.UNKNOWN: SHADES[1]*2, Tile.UNKNOWN_OBSTACLE: MOUNTAIN+'?'}
-def print_as_grid(array, width, print_axes=True, tile_aliases='default', colored_tiles=None, column_seperator = ' ', print=True):
+def print_as_grid(array, width, print_axes=True, tile_aliases='default', colored_tiles=None, column_seperator = ' ', should_print=True):
     if len(array) % width != 0:
         print(f'Array of length {len(array)} is not rectangular with width of {width}.')
         return
@@ -68,7 +68,7 @@ def print_as_grid(array, width, print_axes=True, tile_aliases='default', colored
     color_wrap_if_tuple = lambda tile, contents: tile[1] + contents + RESET_COLOR if type(tile) is tuple else contents
     array = [color_wrap_if_tuple(tile, rjust(str(tile[0] if type(tile) is tuple else tile), print_width)) for tile in array]
     output = '\n'.join([column_seperator.join(array[row_idx*(width + (1 if print_axes else 0)):(row_idx+1)*(width + (1 if print_axes else 0))]) for row_idx in range(len(array)//(width + (1 if print_axes else 0)))])
-    if print:
+    if should_print:
         print(output)
     return output
 
